@@ -22,15 +22,9 @@ import static com.android.systemui.statusbar.StatusBarIconView.STATE_DOT;
 import static com.android.systemui.statusbar.StatusBarIconView.STATE_HIDDEN;
 import static com.android.systemui.statusbar.StatusBarIconView.STATE_ICON;
 
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.res.ColorStateList;
-import android.database.ContentObserver;
-import android.graphics.Color;
 import android.graphics.Rect;
-import android.os.Handler;
-import android.os.UserHandle;
-import android.provider.Settings;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Gravity;
@@ -64,7 +58,9 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
     private String mSlot;
     private MobileIconState mState;
     private SignalDrawable mMobileDrawable;
-    private StatusBarInoutContainer mInoutContainer;
+    private View mInoutContainer;
+    private ImageView mIn;
+    private ImageView mOut;
     private ImageView mMobile, mMobileType, mMobileRoaming;
     private View mMobileSignalType;
     private View mMobileRoamingSpace;
@@ -75,26 +71,6 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
 
     private boolean mOldStyleType;
     private ImageView mMobileTypeSmall;
-
-    private boolean mShowMobileActivity;
-    private final Handler mHandler = new Handler();
-
-    private class SettingsObserver extends ContentObserver {
-         SettingsObserver(Handler handler) {
-             super(handler);
-         }
-
-         void observe() {
-             getContext().getContentResolver().registerContentObserver(Settings.System.getUriFor(
-                 Settings.System.DATA_ACTIVITY_ARROWS), false, this, UserHandle.USER_ALL);
-        }
-
-        @Override
-        public void onChange(boolean selfChange) {
-            updateSettings();
-        }
-    }
-    private SettingsObserver mSettingsObserver = new SettingsObserver(mHandler);
 
     /**
      * Designated constructor
@@ -157,6 +133,8 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
         mMobileType = findViewById(R.id.mobile_type);
         mMobileRoaming = findViewById(R.id.mobile_roaming);
         mMobileRoamingSpace = findViewById(R.id.mobile_roaming_space);
+        mIn = findViewById(R.id.mobile_in);
+        mOut = findViewById(R.id.mobile_out);
         mInoutContainer = findViewById(R.id.inout_container);
         mMobileSignalType = findViewById(R.id.mobile_signal_type);
         mMobileTypeSmall = findViewById(R.id.mobile_type_small);
@@ -164,8 +142,6 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
         mMobileDrawable = new SignalDrawable(getContext());
         mMobile.setImageDrawable(mMobileDrawable);
 
-        mSettingsObserver.observe();
-        updateSettings();
         initDotView();
     }
 
@@ -213,10 +189,8 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
             } else {
                 showNewStyle(mState);
             }
-            mInoutContainer.setVisibility(mShowMobileActivity ? View.VISIBLE : View.GONE);
         } else {
             hideIndicators();
-            mInoutContainer.setVisibility(View.GONE);
         }
         if (mState.roaming) {
             mMobileTypeSmall.setVisibility(View.GONE);
@@ -225,9 +199,10 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
         mMobile.setVisibility(mState.showTriangle ? View.VISIBLE : View.GONE);
         mMobileRoaming.setVisibility(mState.roaming ? View.VISIBLE : View.GONE);
         mMobileRoamingSpace.setVisibility(mState.roaming || showRoamingSpace ? View.VISIBLE : View.GONE);
-        mInoutContainer.setVisibility(
-                mShowMobileActivity && mState.visible ? View.VISIBLE : View.GONE);
-        mInoutContainer.setState(mState.activityIn, mState.activityOut);
+        mIn.setVisibility(mState.activityIn ? View.VISIBLE : View.GONE);
+        mOut.setVisibility(mState.activityOut ? View.VISIBLE : View.GONE);
+        mInoutContainer.setVisibility((mState.activityIn || mState.activityOut)
+                ? View.VISIBLE : View.GONE);
     }
 
     private void setMobileSignalWidth(boolean small) {
@@ -263,10 +238,8 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
                 } else {
                     showNewStyle(state);
                 }
-                mInoutContainer.setVisibility(mShowMobileActivity ? View.VISIBLE : View.GONE);
             } else {
                 hideIndicators();
-                mInoutContainer.setVisibility(View.GONE);
             }
         }
 
@@ -278,7 +251,10 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
         mMobile.setVisibility(state.showTriangle ? View.VISIBLE : View.GONE);
         mMobileRoaming.setVisibility(state.roaming ? View.VISIBLE : View.GONE);
         mMobileRoamingSpace.setVisibility(showRoamingSpace || state.roaming ? View.VISIBLE : View.GONE);
-        mInoutContainer.setState(state.activityIn, state.activityOut);
+        mIn.setVisibility(state.activityIn ? View.VISIBLE : View.GONE);
+        mOut.setVisibility(state.activityOut ? View.VISIBLE : View.GONE);
+        mInoutContainer.setVisibility((state.activityIn || state.activityOut)
+                ? View.VISIBLE : View.GONE);
 
         needsLayout |= state.roaming != mState.roaming
                 || state.activityIn != mState.activityIn
@@ -294,8 +270,9 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
         float intensity = isInAreas(areas, this) ? darkIntensity : 0;
         mMobileDrawable.setTintList(
                 ColorStateList.valueOf(mDualToneHandler.getSingleColor(intensity)));
-        mInoutContainer.setDarkIntensity(darkIntensity);
         ColorStateList color = ColorStateList.valueOf(getTint(areas, this, tint));
+        mIn.setImageTintList(color);
+        mOut.setImageTintList(color);
         mMobileType.setImageTintList(color);
         mMobileTypeSmall.setImageTintList(color);
         mMobileRoaming.setImageTintList(color);
@@ -316,8 +293,8 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
     public void setStaticDrawableColor(int color) {
         ColorStateList list = ColorStateList.valueOf(color);
         mMobileDrawable.setTintList(list);
-        float intensity = color == Color.WHITE ? 0 : 1;
-        mInoutContainer.setDarkIntensity(intensity);
+        mIn.setImageTintList(list);
+        mOut.setImageTintList(list);
         mMobileType.setImageTintList(list);
         mMobileTypeSmall.setImageTintList(list);
         mMobileRoaming.setImageTintList(list);
@@ -391,11 +368,6 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
         return "StatusBarMobileView(slot=" + mSlot + " state=" + mState + ")";
     }
 
-    public void updateSettings() {
-        mShowMobileActivity = Settings.System.getIntForUser(getContext().getContentResolver(),
-            Settings.System.DATA_ACTIVITY_ARROWS, 1, UserHandle.USER_CURRENT) == 1;
-    }
-
     public void updateDisplayType(boolean oldStyleType) {
         boolean needsLayout = false;
         boolean showRoamingSpace = oldStyleType ? true : false;
@@ -417,6 +389,8 @@ public class StatusBarMobileView extends BaseStatusBarFrameLayout implements Dar
         }
         mMobileRoaming.setVisibility(mState.roaming ? View.VISIBLE : View.GONE);
         mMobileRoamingSpace.setVisibility(showRoamingSpace || mState.roaming ? View.VISIBLE : View.GONE);
+        mIn.setVisibility(mState.activityIn ? View.VISIBLE : View.GONE);
+        mOut.setVisibility(mState.activityOut ? View.VISIBLE : View.GONE);
         mInoutContainer.setVisibility((mState.activityIn || mState.activityOut)
                 ? View.VISIBLE : View.GONE);
 
